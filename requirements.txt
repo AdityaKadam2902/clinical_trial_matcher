@@ -1,0 +1,42 @@
+# ── Core Framework ───────────────────────────────────────────
+fastapi
+uvicorn[standard]
+python-dotenv
+
+# ── Agent Orchestration ───────────────────────────────────────
+langgraph
+langchain
+langchain-groq
+
+# ── Agent Intelligence ────────────────────────────────────────
+dspy-ai
+
+# ── Validation ───────────────────────────────────────────────
+pydantic
+pydantic-settings
+
+# ── Database ─────────────────────────────────────────────────
+sqlalchemy
+asyncpg
+alembic
+psycopg2-binary
+
+# ── Vector DB ────────────────────────────────────────────────
+qdrant-client
+
+# ── HTTP Client ──────────────────────────────────────────────
+httpx
+aiohttp
+tenacity
+
+# ── Logging ──────────────────────────────────────────────────
+loguru
+
+# ── Testing ──────────────────────────────────────────────────
+pytest
+pytest-asyncio
+pytest-cov
+
+# ── Utilities ────────────────────────────────────────────────
+orjson
+slowapi
