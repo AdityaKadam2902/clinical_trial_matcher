@@ -111,12 +111,15 @@ export default function PatientForm({ onSubmit, isLoading }: Props) {
     setLocationInput('')
   }
 
+  const removeList = (key: 'symptoms' | 'medications' | 'allergies' | 'lab_values' | 'preferred_locations', i: number) =>
+    setProfile(p => ({ ...p, [key]: p[key].filter((_, idx) => idx !== i) }))
+
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
 
       {/* Validation errors */}
       {errors.length > 0 && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4">
           <div className="flex items-start gap-3">
             <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
             <div>
@@ -132,20 +135,20 @@ export default function PatientForm({ onSubmit, isLoading }: Props) {
       )}
 
       {/* Section 1: Demographics */}
-      <div className="bg-white border border-gray-200 rounded-xl p-6">
-        <div className="flex items-center gap-2 mb-5 pb-4 border-b border-gray-100">
-          <div className="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center">
-            <User className="w-4 h-4 text-blue-600" />
+      <section className="card p-6">
+        <div className="flex items-center gap-3 mb-5 pb-4 border-b border-line">
+          <div className="w-9 h-9 rounded-lg bg-accent-soft flex items-center justify-center">
+            <User className="w-4 h-4 text-accent" />
           </div>
           <div>
-            <h2 className="text-sm font-semibold text-gray-900">Patient Demographics</h2>
-            <p className="text-xs text-gray-500">Core information required for eligibility matching</p>
+            <h2 className="text-sm font-semibold text-ink">Patient Demographics</h2>
+            <p className="text-xs text-ink-faint">Core information required for eligibility matching</p>
           </div>
         </div>
 
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1.5">
+            <label className="label">
               Age <span className="text-red-500">*</span>
             </label>
             <input
@@ -154,18 +157,18 @@ export default function PatientForm({ onSubmit, isLoading }: Props) {
               value={profile.age || ''}
               onChange={e => setProfile(p => ({ ...p, age: parseInt(e.target.value) || 0 }))}
               placeholder="e.g. 45"
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              className="input-field"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1.5">
+            <label className="label">
               Biological Sex <span className="text-red-500">*</span>
             </label>
             <select
               value={profile.sex}
               onChange={e => setProfile(p => ({ ...p, sex: e.target.value as PatientProfile['sex'] }))}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              className="input-field"
             >
               <option value="unknown">Select sex</option>
               <option value="male">Male</option>
@@ -175,11 +178,11 @@ export default function PatientForm({ onSubmit, isLoading }: Props) {
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1.5">Smoking Status</label>
+            <label className="label">Smoking Status</label>
             <select
               value={profile.smoking_status}
               onChange={e => setProfile(p => ({ ...p, smoking_status: e.target.value as PatientProfile['smoking_status'] }))}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              className="input-field"
             >
               <option value="unknown">Unknown</option>
               <option value="never">Never smoker</option>
@@ -194,41 +197,41 @@ export default function PatientForm({ onSubmit, isLoading }: Props) {
                 type="checkbox"
                 checked={profile.is_pregnant}
                 onChange={e => setProfile(p => ({ ...p, is_pregnant: e.target.checked }))}
-                className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                className="w-4 h-4 rounded border-line text-accent"
               />
-              <span className="text-sm text-gray-700">Currently pregnant</span>
+              <span className="text-sm text-ink">Currently pregnant</span>
             </label>
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
                 checked={profile.is_breastfeeding}
                 onChange={e => setProfile(p => ({ ...p, is_breastfeeding: e.target.checked }))}
-                className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                className="w-4 h-4 rounded border-line text-accent"
               />
-              <span className="text-sm text-gray-700">Currently breastfeeding</span>
+              <span className="text-sm text-ink">Currently breastfeeding</span>
             </label>
           </div>
         </div>
-      </div>
+      </section>
 
       {/* Section 2: Conditions & Symptoms */}
-      <div className="bg-white border border-gray-200 rounded-xl p-6">
-        <div className="flex items-center gap-2 mb-5 pb-4 border-b border-gray-100">
-          <div className="w-8 h-8 bg-orange-50 rounded-lg flex items-center justify-center">
-            <FlaskConical className="w-4 h-4 text-orange-600" />
+      <section className="card p-6">
+        <div className="flex items-center gap-3 mb-5 pb-4 border-b border-line">
+          <div className="w-9 h-9 rounded-lg bg-accent-soft flex items-center justify-center">
+            <FlaskConical className="w-4 h-4 text-accent" />
           </div>
           <div>
-            <h2 className="text-sm font-semibold text-gray-900">Medical Conditions & Symptoms</h2>
-            <p className="text-xs text-gray-500">Use standard medical terms for best results</p>
+            <h2 className="text-sm font-semibold text-ink">Medical Conditions & Symptoms</h2>
+            <p className="text-xs text-ink-faint">Use standard medical terms for best results</p>
           </div>
         </div>
 
         <div className="space-y-4">
           {/* Conditions */}
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1.5">
+            <label className="label">
               Diagnosed Conditions <span className="text-red-500">*</span>
-              <span className="text-gray-400 font-normal ml-1">(at least one condition or symptom required)</span>
+              <span className="text-ink-faint font-normal ml-1">(at least one condition or symptom required)</span>
             </label>
             <div className="flex gap-2">
               <input
@@ -237,20 +240,20 @@ export default function PatientForm({ onSubmit, isLoading }: Props) {
                 onChange={e => setConditionInput(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addCondition())}
                 placeholder="e.g. Type 2 Diabetes Mellitus"
-                className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                className="input-field"
               />
               <button type="button" onClick={addCondition}
-                className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                className="btn-primary px-3 py-2 flex-shrink-0">
                 <Plus className="w-4 h-4" />
               </button>
             </div>
             {profile.conditions.length > 0 && (
               <div className="flex flex-wrap gap-2 mt-2">
                 {profile.conditions.map((c, i) => (
-                  <span key={i} className="inline-flex items-center gap-1.5 bg-blue-50 text-blue-800 text-xs px-3 py-1.5 rounded-full border border-blue-200">
+                  <span key={i} className="inline-flex items-center gap-1.5 bg-accent-soft text-accent text-xs px-3 py-1.5 rounded-full border border-accent/20">
                     {c.display}
                     <button type="button" onClick={() => removeCondition(i)}>
-                      <X className="w-3 h-3 hover:text-blue-900" />
+                      <X className="w-3 h-3 hover:text-accent-hover" />
                     </button>
                   </span>
                 ))}
@@ -260,7 +263,7 @@ export default function PatientForm({ onSubmit, isLoading }: Props) {
 
           {/* Symptoms */}
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1.5">Current Symptoms</label>
+            <label className="label">Current Symptoms</label>
             <div className="flex gap-2">
               <input
                 type="text"
@@ -268,19 +271,19 @@ export default function PatientForm({ onSubmit, isLoading }: Props) {
                 onChange={e => setSymptomInput(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addSymptom())}
                 placeholder="e.g. persistent fatigue, shortness of breath"
-                className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                className="input-field"
               />
               <button type="button" onClick={addSymptom}
-                className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                className="btn-primary px-3 py-2 flex-shrink-0">
                 <Plus className="w-4 h-4" />
               </button>
             </div>
             {profile.symptoms.length > 0 && (
               <div className="flex flex-wrap gap-2 mt-2">
                 {profile.symptoms.map((s, i) => (
-                  <span key={i} className="inline-flex items-center gap-1.5 bg-gray-50 text-gray-700 text-xs px-3 py-1.5 rounded-full border border-gray-200">
+                  <span key={i} className="inline-flex items-center gap-1.5 bg-white text-ink-muted text-xs px-3 py-1.5 rounded-full border border-line">
                     {s}
-                    <button type="button" onClick={() => setProfile(p => ({ ...p, symptoms: p.symptoms.filter((_, idx) => idx !== i) }))}>
+                    <button type="button" onClick={() => removeList('symptoms', i)}>
                       <X className="w-3 h-3" />
                     </button>
                   </span>
@@ -289,34 +292,34 @@ export default function PatientForm({ onSubmit, isLoading }: Props) {
             )}
           </div>
         </div>
-      </div>
+      </section>
 
       {/* Section 3: Medications */}
-      <div className="bg-white border border-gray-200 rounded-xl p-6">
-        <div className="flex items-center gap-2 mb-5 pb-4 border-b border-gray-100">
-          <div className="w-8 h-8 bg-green-50 rounded-lg flex items-center justify-center">
-            <Pill className="w-4 h-4 text-green-600" />
+      <section className="card p-6">
+        <div className="flex items-center gap-3 mb-5 pb-4 border-b border-line">
+          <div className="w-9 h-9 rounded-lg bg-accent-soft flex items-center justify-center">
+            <Pill className="w-4 h-4 text-accent" />
           </div>
           <div>
-            <h2 className="text-sm font-semibold text-gray-900">Current Medications & Allergies</h2>
-            <p className="text-xs text-gray-500">Include all prescription, OTC, and supplements. Critical for drug interaction checking.</p>
+            <h2 className="text-sm font-semibold text-ink">Current Medications & Allergies</h2>
+            <p className="text-xs text-ink-faint">Include all prescription, OTC, and supplements. Critical for drug interaction checking.</p>
           </div>
         </div>
 
         <div className="space-y-5">
           {/* Medications */}
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1.5">Medications</label>
+            <label className="label">Medications</label>
             <div className="grid grid-cols-3 gap-2">
               <input type="text" value={medInput.name} onChange={e => setMedInput(m => ({ ...m, name: e.target.value }))}
-                placeholder="Drug name (generic)" className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
+                placeholder="Drug name (generic)" className="input-field" />
               <input type="text" value={medInput.dosage} onChange={e => setMedInput(m => ({ ...m, dosage: e.target.value }))}
-                placeholder="Dosage e.g. 500mg" className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
+                placeholder="Dosage e.g. 500mg" className="input-field" />
               <div className="flex gap-2">
                 <input type="text" value={medInput.frequency} onChange={e => setMedInput(m => ({ ...m, frequency: e.target.value }))}
-                  placeholder="Frequency" className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
+                  placeholder="Frequency" className="input-field flex-1" />
                 <button type="button" onClick={addMedication}
-                  className="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex-shrink-0">
+                  className="btn-primary px-3 py-2 flex-shrink-0">
                   <Plus className="w-4 h-4" />
                 </button>
               </div>
@@ -324,14 +327,14 @@ export default function PatientForm({ onSubmit, isLoading }: Props) {
             {profile.medications.length > 0 && (
               <div className="mt-2 space-y-1">
                 {profile.medications.map((m, i) => (
-                  <div key={i} className="flex items-center justify-between bg-green-50 border border-green-100 rounded-lg px-3 py-2">
-                    <span className="text-sm text-gray-800">
+                  <div key={i} className="flex items-center justify-between bg-white border border-line rounded-lg px-3 py-2">
+                    <span className="text-sm text-ink">
                       <span className="font-medium">{m.name}</span>
-                      {m.dosage && <span className="text-gray-500 ml-2">{m.dosage}</span>}
-                      {m.frequency && <span className="text-gray-500 ml-2">· {m.frequency}</span>}
+                      {m.dosage && <span className="text-ink-faint ml-2 font-mono">{m.dosage}</span>}
+                      {m.frequency && <span className="text-ink-faint ml-2">· {m.frequency}</span>}
                     </span>
-                    <button type="button" onClick={() => setProfile(p => ({ ...p, medications: p.medications.filter((_, idx) => idx !== i) }))}>
-                      <X className="w-4 h-4 text-gray-400 hover:text-red-500" />
+                    <button type="button" onClick={() => removeList('medications', i)}>
+                      <X className="w-4 h-4 text-ink-faint hover:text-red-500" />
                     </button>
                   </div>
                 ))}
@@ -341,19 +344,19 @@ export default function PatientForm({ onSubmit, isLoading }: Props) {
 
           {/* Allergies */}
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1.5">Drug & Substance Allergies</label>
+            <label className="label">Drug & Substance Allergies</label>
             <div className="flex gap-2">
               <input type="text" value={allergyInput.substance} onChange={e => setAllergyInput(a => ({ ...a, substance: e.target.value }))}
-                placeholder="Substance e.g. Penicillin" className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
+                placeholder="Substance e.g. Penicillin" className="input-field flex-1" />
               <select value={allergyInput.severity} onChange={e => setAllergyInput(a => ({ ...a, severity: e.target.value }))}
-                className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+                className="input-field w-32">
                 <option value="">Severity</option>
                 <option value="mild">Mild</option>
                 <option value="moderate">Moderate</option>
                 <option value="severe">Severe</option>
               </select>
               <button type="button" onClick={addAllergy}
-                className="px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors">
+                className="btn-primary px-3 py-2 flex-shrink-0">
                 <Plus className="w-4 h-4" />
               </button>
             </div>
@@ -361,8 +364,8 @@ export default function PatientForm({ onSubmit, isLoading }: Props) {
               <div className="flex flex-wrap gap-2 mt-2">
                 {profile.allergies.map((a, i) => (
                   <span key={i} className="inline-flex items-center gap-1.5 bg-red-50 text-red-800 text-xs px-3 py-1.5 rounded-full border border-red-200">
-                    ⚠ {a.substance}{a.severity ? ` (${a.severity})` : ''}
-                    <button type="button" onClick={() => setProfile(p => ({ ...p, allergies: p.allergies.filter((_, idx) => idx !== i) }))}>
+                    {a.substance}{a.severity ? ` (${a.severity})` : ''}
+                    <button type="button" onClick={() => removeList('allergies', i)}>
                       <X className="w-3 h-3" />
                     </button>
                   </span>
@@ -371,70 +374,74 @@ export default function PatientForm({ onSubmit, isLoading }: Props) {
             )}
           </div>
         </div>
-      </div>
+      </section>
 
       {/* Section 4: Lab Values */}
-      <div className="bg-white border border-gray-200 rounded-xl p-6">
-        <div className="flex items-center gap-2 mb-5 pb-4 border-b border-gray-100">
-          <h2 className="text-sm font-semibold text-gray-900">Laboratory Values (Optional)</h2>
+      <section className="card p-6">
+        <div className="flex items-center gap-3 mb-5 pb-4 border-b border-line">
+          <div className="w-9 h-9 rounded-lg bg-accent-soft flex items-center justify-center">
+            <span className="text-xs font-mono text-accent font-semibold">%</span>
+          </div>
+          <h2 className="text-sm font-semibold text-ink">Laboratory Values (Optional)</h2>
         </div>
         <div className="flex gap-2">
           <input type="text" value={labInput.test_name} onChange={e => setLabInput(l => ({ ...l, test_name: e.target.value }))}
-            placeholder="Test name e.g. HbA1c" className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
+            placeholder="Test name e.g. HbA1c" className="input-field flex-1" />
           <input type="number" value={labInput.value} onChange={e => setLabInput(l => ({ ...l, value: e.target.value }))}
-            placeholder="Value" className="w-24 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
+            placeholder="Value" className="input-field w-24" />
           <input type="text" value={labInput.unit} onChange={e => setLabInput(l => ({ ...l, unit: e.target.value }))}
-            placeholder="Unit e.g. %" className="w-20 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
+            placeholder="Unit e.g. %" className="input-field w-20" />
           <button type="button" onClick={addLabValue}
-            className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+            className="btn-primary px-3 py-2 flex-shrink-0">
             <Plus className="w-4 h-4" />
           </button>
         </div>
         {profile.lab_values.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-2">
             {profile.lab_values.map((l, i) => (
-              <span key={i} className="inline-flex items-center gap-1.5 bg-purple-50 text-purple-800 text-xs px-3 py-1.5 rounded-full border border-purple-200">
+              <span key={i} className="inline-flex items-center gap-1.5 bg-white text-ink-muted text-xs px-3 py-1.5 rounded-full border border-line font-mono">
                 {l.test_name}: {l.value} {l.unit}
-                <button type="button" onClick={() => setProfile(p => ({ ...p, lab_values: p.lab_values.filter((_, idx) => idx !== i) }))}>
+                <button type="button" onClick={() => removeList('lab_values', i)}>
                   <X className="w-3 h-3" />
                 </button>
               </span>
             ))}
           </div>
         )}
-      </div>
+      </section>
 
       {/* Section 5: Preferences */}
-      <div className="bg-white border border-gray-200 rounded-xl p-6">
-        <div className="flex items-center gap-2 mb-5 pb-4 border-b border-gray-100">
-          <div className="w-8 h-8 bg-indigo-50 rounded-lg flex items-center justify-center">
-            <MapPin className="w-4 h-4 text-indigo-600" />
+      <section className="card p-6">
+        <div className="flex items-center gap-3 mb-5 pb-4 border-b border-line">
+          <div className="w-9 h-9 rounded-lg bg-accent-soft flex items-center justify-center">
+            <MapPin className="w-4 h-4 text-accent" />
           </div>
           <div>
-            <h2 className="text-sm font-semibold text-gray-900">Search Preferences (Optional)</h2>
-            <p className="text-xs text-gray-500">Filter results by location and trial phase</p>
+            <h2 className="text-sm font-semibold text-ink">Search Preferences (Optional)</h2>
+            <p className="text-xs text-ink-faint">Filter results by location and trial phase</p>
           </div>
         </div>
 
         <div className="space-y-4">
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1.5">Preferred Locations</label>
+            <label className="label">Preferred Locations</label>
             <div className="flex gap-2">
               <input type="text" value={locationInput} onChange={e => setLocationInput(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addLocation())}
                 placeholder="State or country e.g. California, New York"
-                className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
+                className="input-field flex-1" />
               <button type="button" onClick={addLocation}
-                className="px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors">
+                className="btn-primary px-3 py-2 flex-shrink-0">
                 <Plus className="w-4 h-4" />
               </button>
             </div>
             {profile.preferred_locations.length > 0 && (
               <div className="flex flex-wrap gap-2 mt-2">
                 {profile.preferred_locations.map((loc, i) => (
-                  <span key={i} className="inline-flex items-center gap-1.5 bg-indigo-50 text-indigo-800 text-xs px-3 py-1.5 rounded-full border border-indigo-200">
-                    📍 {loc}
-                    <button type="button" onClick={() => setProfile(p => ({ ...p, preferred_locations: p.preferred_locations.filter((_, idx) => idx !== i) }))}>
+                  <span key={i} className="inline-flex items-center gap-1.5 bg-white text-ink-muted text-xs px-3 py-1.5 rounded-full border border-line">
+                    <MapPin className="w-3 h-3 text-ink-faint" />
+                    {loc}
+                    <button type="button" onClick={() => removeList('preferred_locations', i)}>
                       <X className="w-3 h-3" />
                     </button>
                   </span>
@@ -444,7 +451,7 @@ export default function PatientForm({ onSubmit, isLoading }: Props) {
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-2">Trial Phases (leave blank for all)</label>
+            <label className="label mb-2">Trial Phases (leave blank for all)</label>
             <div className="flex flex-wrap gap-2">
               {(['PHASE1', 'PHASE2', 'PHASE3', 'PHASE4'] as const).map(phase => {
                 const selected = profile.trial_phases?.includes(phase)
@@ -459,8 +466,8 @@ export default function PatientForm({ onSubmit, isLoading }: Props) {
                     }}
                     className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${
                       selected
-                        ? 'bg-blue-600 text-white border-blue-600'
-                        : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300'
+                        ? 'bg-accent text-white border-accent'
+                        : 'bg-white text-ink-muted border-line hover:border-accent/40'
                     }`}>
                     {phase.replace('PHASE', 'Phase ')}
                   </button>
@@ -469,13 +476,13 @@ export default function PatientForm({ onSubmit, isLoading }: Props) {
             </div>
           </div>
         </div>
-      </div>
+      </section>
 
       {/* Submit */}
       <button
         type="submit"
         disabled={isLoading}
-        className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-colors text-sm flex items-center justify-center gap-2"
+        className="btn-primary w-full py-3.5"
       >
         {isLoading ? (
           <>

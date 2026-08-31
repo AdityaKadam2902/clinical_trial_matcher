@@ -1,6 +1,6 @@
 // Full type definitions — updated
 export interface Condition { display: string; snomed_code?: string; severity?: string; is_active?: boolean }
-export interface Medication { name: string; dosage?: string; frequency?: string }
+export interface Medication { name: string; dosage?: string; frequency?: string; is_active?: boolean }
 export interface Allergy { substance: string; severity?: string }
 export interface LabValue { test_name: string; value: number; unit: string; is_abnormal?: boolean }
 
@@ -51,7 +51,8 @@ export interface ClinicalTrial {
   eligibility: EligibilityCriteria; locations: TrialLocation[]
   location_count: number; countries: string[]
   sponsor?: string; start_date?: string; completion_date?: string
-  enrollment_count?: number; overall_contact_email?: string; url: string
+  enrollment_count?: number; overall_contact_name?: string; overall_contact_email?: string
+  overall_contact_phone?: string; url: string
 }
 
 export interface MatchedTrial {
