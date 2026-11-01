@@ -487,7 +487,7 @@ export default function PatientForm({ onSubmit, isLoading }: Props) {
         {isLoading ? (
           <>
             <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-            Running AI Pipeline (30–60s)...
+            Running AI Pipeline (up to 2 min with a local model)...
           </>
         ) : (
           'Find Matching Clinical Trials'

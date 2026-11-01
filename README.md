@@ -4,7 +4,7 @@
 
 **AI-Powered Clinical Trial Matching Platform**
 
-An end-to-end system that matches patients to recruiting clinical trials using a **6-agent LangGraph pipeline**, combining LLM reasoning (Groq), structured programmatic reasoning (DSPy), a deterministic clinical safety rule engine, and live data from **ClinicalTrials.gov**, **OpenFDA**, and **RxNorm**.
+An end-to-end system that matches patients to recruiting clinical trials using a **6-agent LangGraph pipeline**, combining LLM reasoning (local-first via an OpenAI-compatible Ollama/vLLM endpoint; Groq development fallback), structured programmatic reasoning (DSPy), a deterministic clinical safety rule engine, and live data from **ClinicalTrials.gov**, **OpenFDA**, and **RxNorm**. Production configuration rejects non-local model providers; the agent-level local migration is tracked in Phase 3.
 
 Built with a **FastAPI** backend, a **React + TypeScript** frontend, and **FHIR R4**-aligned data models.
 
@@ -43,7 +43,7 @@ Given a structured patient profile, the system:
 
 1. **Normalizes** patient data (RxNorm medication standardization + LLM keyword extraction).
 2. **Searches** ClinicalTrials.gov for actively recruiting trials (with an automatic fallback source).
-3. **Evaluates eligibility** — an AI reasoner (DSPy + Groq 70B) assesses each trial's inclusion/exclusion criteria against the patient.
+3. **Evaluates eligibility** — an AI reasoner (DSPy + local LLM) assesses each trial's inclusion/exclusion criteria against the patient.
 4. **Checks safety** — a **deterministic rule engine** (age, sex, pregnancy, allergies, renal/liver/cardiac status) plus **OpenFDA** drug-interaction lookups.
 5. **Ranks** results with an explainable, weighted scoring formula.
 6. **Summarizes** findings into a physician-ready report.
@@ -64,9 +64,10 @@ The output is a paginated, ranked list of matches with per-trial eligibility rea
 | **Resilient Pre-Filtering** | Trials pre-filtered by status, **preferred location**, and **trial phase** before expensive LLM evaluation |
 | **Honest Uncertainty** | Trials with unavailable criteria are returned as `NEEDS_REVIEW` — never fabricated as confident matches |
 | **FHIR R4 Alignment** | Pydantic schemas modeled on FHIR R4 resources (Patient, Condition, MedicationStatement) |
-| **Rate-Limit Aware** | SlowAPI endpoint throttling + batched/concurrent agent execution tuned for Groq free-tier limits |
-| **Observability** | Loguru structured logging (rotating console + file + error logs), request timing headers, per-pipeline telemetry |
-| **Production Ready** | Async PostgreSQL (SQLAlchemy 2.0 + asyncpg), CORS, SPA static serving, pagination |
+| **Rate-Limit Aware** | SlowAPI throttling (Redis in production) + batched/concurrent agent execution |
+| **Security** | Self-hosted JWT auth with Argon2 hashing, RBAC, refresh-token rotation, immutable audit log |
+| **Observability** | JSON logs with request correlation and secret redaction, health/readiness probes, Prometheus `/metrics` |
+| **Production Ready** | Docker Compose deployment, Alembic migrations, async PostgreSQL, CORS, security headers, SPA static serving |
 
 ---
 
@@ -82,7 +83,7 @@ All agents share a single `PipelineState` (a LangGraph `TypedDict`) — a relay 
         ▼               │   │  Agent 1       │    │  Agent 2            │    │
    POST /api/v1/match ──┼──▶│  Profile        │───▶│  Trial Fetcher      │────┼──▶ ClinicalTrials.gov
         │               │   │  Parser        │    │  (no LLM)           │    │      (+ fallback)
-        │               │   │  [Groq 8B]     │    │  pre-filter:        │    │
+        │               │   │  [LLM fast]     │    │  pre-filter:        │    │
         │               │   └────────────────┘    │  status/location/   │    │
         │               │                         │  phase              │    │
         │               │                         └────────┬────────────┘    │
@@ -91,13 +92,13 @@ All agents share a single `PipelineState` (a LangGraph `TypedDict`) — a relay 
         │               │   │  Agent 3       │    │  Agent 4            │    │
         │               │   │  Eligibility   │───▶│  Drug Safety        │────┼──▶ OpenFDA + RxNorm
         │               │   │  Checker       │    │  Rule Engine (hard  │    │
-        │               │   │  [DSPy + 70B]  │    │  walls) + FDA       │    │
+        │               │   │  [DSPy + LLM]  │    │  walls) + FDA       │    │
         │               │   └────────────────┘    └────────┬────────────┘    │
         │               │                                  ▼                 │
         │               │   ┌────────────────┐    ┌─────────────────────┐    │
         │               │   │  Agent 5       │    │  Agent 6            │    │
         │               │   │  Ranker        │───▶│  Report Generator   │────┼──▶ Physician Summary
-        │               │   │  (weighted     │    │  [Groq 70B]         │    │
+        │               │   │  (weighted     │    │  [LLM complex]         │    │
         │               │   │  scoring)      │    └─────────────────────┘    │
         │               │   └────────────────┘                               │
         │               └──────────────────────────┬─────────────────────────┘
@@ -110,12 +111,12 @@ All agents share a single `PipelineState` (a LangGraph `TypedDict`) — a relay 
 
 | # | Agent | Module | Model / Tool | Responsibility |
 |---|-------|--------|--------------|----------------|
-| 1 | **Profile Parser** | `agents/profile_parser.py` | Groq 8B (fast) + RxNorm | Normalizes medication names to generics, extracts search-optimized condition keywords, builds a human-readable profile summary |
+| 1 | **Profile Parser** | `agents/profile_parser.py` | Local LLM (fast) + RxNorm | Normalizes medication names to generics, extracts search-optimized condition keywords, builds a human-readable profile summary |
 | 2 | **Trial Fetcher** | `agents/trial_fetcher.py` | ClinicalTrials.gov v2 API (no LLM) | Fetches recruiting trials, parses/cleans them, pre-filters by status, preferred location, and trial phase |
-| 3 | **Eligibility Checker** | `agents/eligibility_checker.py` | DSPy `ChainOfThought` + Groq 70B | Determines eligibility per trial, returns typed decision (`ELIGIBLE` → `NEEDS_REVIEW`), confidence, match score, met/unmet criteria, and reasoning |
+| 3 | **Eligibility Checker** | `agents/eligibility_checker.py` | DSPy `ChainOfThought` + local LLM | Determines eligibility per trial, returns typed decision (`ELIGIBLE` → `NEEDS_REVIEW`), confidence, match score, met/unmet criteria, and reasoning |
 | 4 | **Drug Safety** | `agents/drug_safety_agent.py` | Rule engine (deterministic) + OpenFDA | Runs hard-contraindication rules first, then OpenFDA interaction checks; produces per-trial `SafetyAssessment` |
 | 5 | **Ranker** | `agents/ranker_agent.py` | Weighted formula (no LLM) | Computes a 0–100 score per trial, sorts, assigns ranks, hard-excludes `NOT_ELIGIBLE` / `CRITICAL` trials |
-| 6 | **Report Generator** | `agents/report_generator.py` | Groq 70B | Writes a concise physician summary with safety notes, eligibility status, and next steps (with strict clinical guardrails) |
+| 6 | **Report Generator** | `agents/report_generator.py` | Local LLM | Writes a concise physician summary with safety notes, eligibility status, and next steps (with strict clinical guardrails) |
 
 **Conditional routing:** if the trial fetcher returns no trials (or an error), the graph routes directly to the report generator so the patient still receives an honest, actionable summary explaining why.
 
@@ -171,12 +172,13 @@ Each trial is scored 0–100 using a transparent, explainable weighted formula (
 | Framework | [FastAPI](https://fastapi.tiangolo.com) + Uvicorn |
 | Agent Orchestration | [LangGraph](https://langchain-ai.github.io/langgraph/) |
 | Structured LLM Reasoning | [DSPy](https://dspy-docs.vercel.app) (`ChainOfThought`) |
-| LLM Provider | Groq (`llama-3.3-70b-versatile` complex / `llama-3.1-8b-instant` fast) via `langchain-groq` |
+| LLM Provider | Local OpenAI-compatible endpoint (Ollama / vLLM); Groq development fallback |
 | Validation | Pydantic v2 + pydantic-settings |
-| Database | PostgreSQL (async) via SQLAlchemy 2.0 + asyncpg |
+| Database | PostgreSQL (async) via SQLAlchemy 2.1 + asyncpg + Alembic |
+| Auth | Self-hosted JWT (PyJWT) + Argon2 (`pwdlib`) + RBAC |
 | HTTP / Resilience | httpx · aiohttp · tenacity (retries + backoff) |
-| Rate Limiting | slowapi |
-| Logging | Loguru |
+| Rate Limiting | SlowAPI with Redis storage |
+| Observability | Loguru JSON logs + Prometheus metrics |
 | Serialization | orjson |
 
 ### Frontend
@@ -199,57 +201,50 @@ Each trial is scored 0–100 using a transparent, explainable weighted formula (
 
 ```
 clinical_trial_matcher/
-├── main.py                        # FastAPI entry point (lifespan, CORS, rate limits, SPA serving)
-├── requirements.txt               # Python dependencies
-├── .env                           # Local environment configuration (never commit secrets)
+├── src/clinical_trial_matcher/
+│   ├── main.py                    # FastAPI app factory, middleware, lifespan
+│   ├── agents/                    # The 6-agent LangGraph pipeline
+│   │   ├── pipeline_state.py      # Shared TypedDict state
+│   │   ├── pipeline.py            # Graph orchestration + conditional routing
+│   │   ├── profile_parser.py      # Agent 1: RxNorm + keyword extraction
+│   │   ├── trial_fetcher.py       # Agent 2: ClinicalTrials.gov + pre-filtering
+│   │   ├── eligibility_checker.py # Agent 3: DSPy eligibility evaluation
+│   │   ├── drug_safety_agent.py   # Agent 4: Rule engine + OpenFDA
+│   │   ├── ranker_agent.py        # Agent 5: Weighted scoring & ranking
+│   │   └── report_generator.py    # Agent 6: Physician-ready summary
+│   ├── api/
+│   │   ├── auth.py                # Register/login/refresh/logout/me
+│   │   ├── deps.py                # Principal, JWT dependencies, RBAC guards
+│   │   ├── errors.py              # Consistent error envelope
+│   │   ├── health.py              # Liveness, readiness, metrics
+│   │   ├── middleware.py          # Request ID, body limit, security headers
+│   │   └── routes.py              # Match, trial detail, drug checks
+│   ├── core/
+│   │   ├── config.py              # Pydantic settings + production safety checks
+│   │   ├── database.py            # Async SQLAlchemy engine/sessions
+│   │   ├── logger.py              # JSON logs, correlation, redaction
+│   │   ├── rate_limit.py          # Shared SlowAPI limiter
+│   │   ├── redis.py               # Redis client lifecycle
+│   │   └── security.py            # Argon2 hashing + JWT issue/verify
+│   ├── db/
+│   │   ├── base.py                # Declarative base
+│   │   ├── enums.py               # Domain enums
+│   │   └── models/                # 13 SQLAlchemy models
+│   ├── rules/safety_rules.py      # Deterministic clinical safety rules
+│   ├── schemas/                   # Pydantic request/response contracts
+│   └── utils/api_clients.py       # ClinicalTrials.gov, OpenFDA, RxNorm clients
 │
-├── agents/                        # The 6-agent LangGraph pipeline
-│   ├── pipeline_state.py          # Shared TypedDict state (relay baton between agents)
-│   ├── pipeline.py                # Graph orchestration + conditional routing
-│   ├── profile_parser.py          # Agent 1: RxNorm normalization + LLM keyword extraction
-│   ├── trial_fetcher.py           # Agent 2: ClinicalTrials.gov search + pre-filtering
-│   ├── eligibility_checker.py     # Agent 3: DSPy ChainOfThought eligibility evaluation
-│   ├── drug_safety_agent.py       # Agent 4: Rule engine + OpenFDA interaction checks
-│   ├── ranker_agent.py            # Agent 5: Weighted scoring & ranking
-│   └── report_generator.py        # Agent 6: Physician-ready summary
-│
-├── api/
-│   └── routes.py                  # REST endpoints (match, trial detail, drug checks)
-│
-├── core/
-│   ├── config.py                  # Centralized Pydantic-settings configuration
-│   ├── database.py                # Async PostgreSQL engine / sessions / table creation
-│   └── logger.py                  # Loguru setup (console + rotating files)
-│
-├── rules/
-│   └── safety_rules.py            # Deterministic clinical safety rule engine
-│
-├── schemas/
-│   ├── patient.py                 # FHIR R4-aligned patient schemas
-│   └── trial.py                   # Cleaned trial, assessment, and response schemas
-│
-├── utils/
-│   └── api_clients.py             # ClinicalTrials.gov, OpenFDA, RxNorm HTTP clients
-│
-├── tests/
-│   ├── test_api_clients.py        # API parsing unit tests (no network)
-│   ├── test_rule_engine.py        # Safety rule engine tests (most critical)
-│   └── test_pipeline_fixes.py     # Regression tests for pipeline fixes
-│
-└── frontend/                      # React + TypeScript + Tailwind SPA
-    ├── index.html
-    ├── vite.config.ts             # Dev server on :3000, proxies /api → :8000
-    ├── tailwind.config.js
-    ├── package.json
-    └── src/
-        ├── App.tsx                # Form → pipeline-progress → results views
-        ├── main.tsx               # React root + QueryClient provider
-        ├── index.css
-        ├── services/api.ts        # Axios client for backend endpoints
-        ├── types/index.ts         # Full TypeScript contract for API responses
-        └── components/
-            ├── PatientForm.tsx    # Multi-section patient intake form
-            └── TrialCard.tsx      # Ranked trial card with eligibility + safety details
+├── alembic/                       # Schema migrations
+├── scripts/
+│   ├── create_admin.py            # Admin bootstrap / promotion CLI
+│   └── docker-entrypoint.sh       # Migrate + start Uvicorn
+├── tests/                         # Unit and regression tests
+├── frontend/                      # React + TypeScript + Tailwind SPA
+├── Dockerfile                     # Multi-stage API + SPA image
+├── docker-compose.yml             # API, PostgreSQL, Redis, Ollama, optional Qdrant
+├── pyproject.toml                 # Dependencies + tooling configuration
+├── uv.lock                        # Reproducible dependency lock
+└── .env.example                   # Environment template (never commit .env)
 ```
 
 ---
@@ -258,11 +253,12 @@ clinical_trial_matcher/
 
 ### Prerequisites
 
-- **Python 3.11+**
-- **Node.js 18+** (for the frontend)
-- **PostgreSQL 14+** (or Docker)
-- **Docker** (optional — for PostgreSQL/Qdrant)
-- **Groq API key** — free at [console.groq.com](https://console.groq.com)
+- **Python 3.12** (3.11+ supported)
+- **Node.js 20+** (for the frontend)
+- **PostgreSQL 16+** (or Docker)
+- **Redis 7+** (required in staging/production)
+- **Docker + Docker Compose** (recommended deployment path)
+- **A local OpenAI-compatible LLM** — Ollama (`llama3.1:8b` by default) or vLLM. Groq is available only as an explicit development fallback; production startup rejects non-local providers.
 
 ### 1. Clone & enter the project
 
@@ -285,95 +281,83 @@ source .venv/bin/activate
 
 ### 3. Install Python dependencies
 
+With [uv](https://docs.astral.sh/uv/) (recommended, uses the lockfile):
+
+```bash
+uv sync --extra dev
+```
+
+Or with pip:
+
 ```bash
 pip install -r requirements.txt
 ```
 
-> **Note:** the DSPy package is published as `dspy-ai` (not `dspy`). If you hit an import error, run `pip install dspy-ai`.
-
 ### 4. Configure environment variables
 
-Create a `.env` file in the project root (a copy of the block below) and fill in your values:
+```bash
+cp .env.example .env
+```
+
+Generate a strong secret and fill in the database credentials:
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+Key settings:
 
 ```env
-# ── LLM (required) ────────────────────────────────────────────
-GROQ_API_KEY=gsk_your_key_here                 # Get free at console.groq.com
-GROQ_MODEL_COMPLEX=llama-3.3-70b-versatile     # Complex reasoning (eligibility, reports)
-GROQ_MODEL_FAST=llama-3.1-8b-instant           # Fast extraction (profile parser)
-
-# ── Database (required) ───────────────────────────────────────
+APP_ENV=development
+SECRET_KEY=<generated 48-byte value>
 DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/clinical_trials
 DATABASE_URL_SYNC=postgresql://postgres:postgres@localhost:5432/clinical_trials
-
-# ── Vector DB (optional) ──────────────────────────────────────
-QDRANT_HOST=localhost
-QDRANT_PORT=6333
-QDRANT_COLLECTION=clinical_trials
-
-# ── External APIs (all free, no keys) ─────────────────────────
-CLINICALTRIALS_BASE_URL=https://clinicaltrials.gov/api/v2
-OPENFDA_BASE_URL=https://api.fda.gov/drug
-RXNORM_BASE_URL=https://rxnav.nlm.nih.gov/REST
-
-# ── App ───────────────────────────────────────────────────────
-APP_ENV=development
-APP_HOST=0.0.0.0
-APP_PORT=8000
-SECRET_KEY=change-me-in-production
-CORS_ORIGINS=http://localhost:3000,http://localhost:5173
-
-# ── Pagination ────────────────────────────────────────────────
-DEFAULT_PAGE_SIZE=10
-MAX_PAGE_SIZE=50
+REDIS_URL=redis://localhost:6379/0
+LLM_PROVIDER=local
+LOCAL_LLM_BASE_URL=http://localhost:11434/v1
+LOCAL_LLM_MODEL=llama3.1:8b
+AUTH_ENABLED=true
+ALLOW_REGISTRATION=false
+AUTO_CREATE_TABLES=false
 ```
 
-### 5. Start PostgreSQL
+See [`.env.example`](.env.example) for the complete list. In production the app refuses to start when `SECRET_KEY` is weak, `AUTO_CREATE_TABLES` is true, registration is open, or `LLM_PROVIDER` is not `local`.
 
-**Option A — Docker (recommended):**
+### 5. Start PostgreSQL and Redis
 
 ```bash
-docker run -d \
-  --name clinical_trials_db \
-  -e POSTGRES_USER=postgres \
-  -e POSTGRES_PASSWORD=postgres \
-  -e POSTGRES_DB=clinical_trials \
-  -p 5432:5432 \
-  postgres:16
+docker compose up -d db redis
 ```
 
-**Option B — Local PostgreSQL:**
+Or point `DATABASE_URL` / `REDIS_URL` at existing local services. Redis is optional in development; rate limiting falls back to in-memory storage.
 
-```sql
-CREATE DATABASE clinical_trials;
-CREATE USER postgres WITH PASSWORD 'postgres';
-GRANT ALL PRIVILEGES ON DATABASE clinical_trials TO postgres;
-```
-
-### 6. (Optional) Start Qdrant
+### 6. Apply migrations and bootstrap an admin
 
 ```bash
-docker run -d --name qdrant -p 6333:6333 qdrant/qdrant
+uv run alembic upgrade head
+uv run python scripts/create_admin.py --email admin@example.com
 ```
 
-### 7. Run the backend
+`create_admin.py` prompts for a password and creates (or promotes) an administrator. Registration is disabled by default; provision additional accounts through the CLI or your deployment's admin process.
+
+### 7. (Optional) Start Qdrant
 
 ```bash
-uvicorn main:app --reload --port 8000
+docker compose --profile vector up -d qdrant
 ```
 
-You should see:
+### 8. Run the backend
 
-```
-INFO   Clinical Trial Matcher API — Starting...
-INFO   Environment: development
-SUCCESS  Database tables created/verified.
-SUCCESS  Application ready.
+```bash
+uv run uvicorn clinical_trial_matcher.main:app --reload --port 8000
 ```
 
-- Interactive API docs (Swagger UI): **http://localhost:8000/docs**
-- Health check: **http://localhost:8000/api/v1/health**
+- Interactive API docs (development only): **http://localhost:8000/docs**
+- Liveness: **http://localhost:8000/api/v1/health/live**
+- Readiness: **http://localhost:8000/api/v1/health/ready**
+- Metrics: **http://localhost:8000/metrics**
 
-### 8. Run the frontend
+### 9. Run the frontend
 
 ```bash
 cd frontend
@@ -389,20 +373,48 @@ The frontend is served at **http://localhost:3000**. The Vite dev server proxies
 
 ## API Reference
 
-All endpoints are prefixed with `/api/v1`. Rate limits are enforced per IP address.
+All endpoints are prefixed with `/api/v1`. Clinical endpoints require a Bearer access token and are rate limited per client IP (Redis-backed in production).
+
+### Authentication
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/auth/register` | Register a user (disabled in production by default) |
+| `POST` | `/auth/login` | Exchange email/password for access + refresh tokens |
+| `POST` | `/auth/refresh` | Rotate a refresh token and issue a new access token |
+| `POST` | `/auth/logout` | Revoke the submitted refresh token |
+| `GET` | `/auth/me` | Current user and role |
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/login \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  --data-urlencode "username=admin@example.com" \
+  --data-urlencode "password=..."
+```
+
+### Clinical endpoints
 
 | Method | Endpoint | Description | Rate Limit |
 |--------|----------|-------------|:----------:|
-| `GET` | `/health` | Service health, version, active model, environment | — |
 | `POST` | `/match` | Run the full 6-agent pipeline and return ranked matches | 5/min |
-| `GET` | `/trials/{nct_id}` | Fetch full details for a specific trial | 20/min |
-| `GET` | `/drugs/check` | Check drug–drug interactions (`drug1`, `drug2`) | 10/min |
-| `GET` | `/drugs/normalize` | Normalize a brand name → generic via RxNorm (`name`) | 20/min |
+| `GET` | `/trial/{nct_id}` | Fetch full details for a specific trial | 60/min |
+| `GET` | `/drugs/check` | Check drug–drug interactions (`drug1`, `drug2`) | 60/min |
+| `GET` | `/drugs/normalize` | Normalize a brand name → generic via RxNorm (`name`) | 60/min |
+
+### Health and observability
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/health` | Basic service health (version, environment, uptime) |
+| `GET` | `/health/live` | Liveness probe |
+| `GET` | `/health/ready` | Readiness probe (503 when dependencies are down) |
+| `GET` | `/metrics` | Prometheus metrics |
 
 ### Match a patient with trials
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/match \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "age": 52,
@@ -442,13 +454,14 @@ curl -X POST http://localhost:8000/api/v1/match \
 ### Check a drug interaction
 
 ```bash
-curl "http://localhost:8000/api/v1/drugs/check?drug1=metformin&drug2=contrast%20dye"
+curl "http://localhost:8000/api/v1/drugs/check?drug1=metformin&drug2=contrast%20dye" \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 ### Get a specific trial
 
 ```bash
-curl http://localhost:8000/api/v1/trials/NCT04892173
+curl http://localhost:8000/api/v1/trial/NCT04892173 -H "Authorization: Bearer $TOKEN"
 ```
 
 ### Pagination
@@ -457,6 +470,7 @@ Both the `/match` endpoint accept `page` and `page_size` query parameters (`page
 
 ```bash
 curl -X POST "http://localhost:8000/api/v1/match?page=2&page_size=10" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"age": 52, "sex": "female", "conditions": [{"display": "Type 2 Diabetes Mellitus"}]}'
 ```
@@ -486,34 +500,42 @@ pytest tests/test_rule_engine.py -v
 
 ---
 
-## Deployment
+## Deployment — Docker Compose on a VPS
 
-### Backend — Railway / Render / any Docker host
-
-```bash
-# Railway CLI
-npm install -g @railway/cli
-railway login
-railway init
-railway up
-```
-
-Set all environment variables from the [Environment Variables](#-environment-variables) section in your host's dashboard. Point `DATABASE_URL` and `DATABASE_URL_SYNC` at a managed PostgreSQL instance.
-
-### Frontend — Vercel / Netlify
+The image builds the React SPA and serves it from FastAPI, so a single API container exposes the complete application.
 
 ```bash
-cd frontend
-npm install -g vercel
-vercel --prod
+cp .env.example .env
+# Set at minimum:
+#   APP_ENV=production
+#   SECRET_KEY=<48+ random bytes>
+#   POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB
+#   TRUSTED_HOSTS=your-domain.example
+#   CORS_ORIGINS=https://your-domain.example
+#   LOCAL_LLM_MODEL=llama3.1:8b
+
+docker compose build
+docker compose up -d
+docker compose exec ollama ollama pull llama3.1:8b
+docker compose exec api python scripts/create_admin.py --email admin@example.com
 ```
 
-Set `VITE_API_URL` to your deployed backend URL and ensure CORS includes the frontend origin.
+The API runs migrations automatically on startup (`RUN_MIGRATIONS=true`). Verify with:
 
-### Qdrant Cloud (free tier)
+```bash
+curl -fsS http://127.0.0.1:8000/api/v1/health/ready
+docker compose logs -f api
+```
 
-1. Create a free cluster at [cloud.qdrant.io](https://cloud.qdrant.io).
-2. Update `QDRANT_HOST` (and port/API key) in your environment.
+Operational notes:
+
+- Put a TLS-terminating reverse proxy (Caddy, Traefik, or nginx) in front of port 8000. Set `TRUSTED_PROXY_COUNT` and `FORWARDED_ALLOW_IPS` for your proxy topology.
+- PostgreSQL, Redis, and Ollama are internal-only; do not publish their ports.
+- Pull the model once per host (or bake it into your deployment process). The API starts before the model finishes downloading, so `/health/ready` can be green while the first match fails — warm the model after pulling.
+- Back up the `postgres_data` volume. Logs are written to the `app_logs` volume and stdout.
+- Scale `WEB_CONCURRENCY` with CPU; GPU inference is served by the Ollama container (add a GPU reservation override if your VPS has one).
+- CI (`.github/workflows/ci.yml`) runs lint, type checks, migrations, tests, a frontend build, and a Docker image build.
+- **Local inference is wired end to end.** Every agent selects its client through `agents/llm.py` using `LLM_PROVIDER`; production validation still rejects `LLM_PROVIDER=groq`, so patient data never leaves the host. Pull the configured `LOCAL_LLM_MODEL` before the first request and confirm model quality on your own evaluation data before clinical use.
 
 ---
 
@@ -521,34 +543,48 @@ Set `VITE_API_URL` to your deployed backend URL and ensure CORS includes the fro
 
 | Variable | Required | Default | Description |
 |----------|:--------:|---------|-------------|
-| `GROQ_API_KEY` | Yes | — | Groq API key (free at console.groq.com) |
-| `DATABASE_URL` | Yes | — | Async PostgreSQL connection string (`postgresql+asyncpg://…`) |
-| `DATABASE_URL_SYNC` | Yes | — | Sync PostgreSQL string (for tooling such as Alembic) |
-| `GROQ_MODEL_COMPLEX` | No | `llama-3.3-70b-versatile` | Complex reasoning model (eligibility, reports) |
-| `GROQ_MODEL_FAST` | No | `llama-3.1-8b-instant` | Fast extraction model (profile parser) |
-| `QDRANT_HOST` | No | `localhost` | Qdrant vector DB host |
-| `QDRANT_PORT` | No | `6333` | Qdrant port |
-| `QDRANT_COLLECTION` | No | `clinical_trials` | Qdrant collection name |
-| `CLINICALTRIALS_BASE_URL` | No | `https://clinicaltrials.gov/api/v2` | ClinicalTrials.gov API base URL |
-| `OPENFDA_BASE_URL` | No | `https://api.fda.gov/drug` | OpenFDA base URL |
-| `RXNORM_BASE_URL` | No | `https://rxnav.nlm.nih.gov/REST` | RxNorm base URL |
-| `APP_ENV` | No | `development` | `development` / `production` |
-| `APP_HOST` | No | `0.0.0.0` | Bind address |
-| `APP_PORT` | No | `8000` | Bind port |
-| `SECRET_KEY` | No | `change-me-in-production` | App secret — **must change in production** |
-| `CORS_ORIGINS` | No | `http://localhost:3000` | Comma-separated allowed frontend origins |
-| `DEFAULT_PAGE_SIZE` | No | `10` | Default results per page |
-| `MAX_PAGE_SIZE` | No | `50` | Upper bound on page size |
+| `APP_ENV` | No | `development` | `development` / `staging` / `production` / `test` |
+| `SECRET_KEY` | Production | `change-me-in-production` | JWT signing secret, **≥32 characters in production** |
+| `DATABASE_URL` | Yes | — | Async PostgreSQL URL (`postgresql+asyncpg://…`) |
+| `DATABASE_URL_SYNC` | Yes | — | Sync PostgreSQL URL (Alembic) |
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | Compose | `ctm` / — / `clinical_trials` | Database container credentials |
+| `REDIS_URL` | Production | `redis://localhost:6379/0` | Rate-limit storage |
+| `AUTH_ENABLED` | No | `true` | Enable JWT authentication (must be true in production) |
+| `ALLOW_REGISTRATION` | No | `false` | Open `/auth/register` (must be false in production) |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | No | `30` | Access-token lifetime |
+| `REFRESH_TOKEN_EXPIRE_DAYS` | No | `7` | Refresh-token lifetime |
+| `TRUSTED_HOSTS` | Production | `localhost,127.0.0.1,testserver` | Comma-separated Host allowlist |
+| `CORS_ORIGINS` | No | `http://localhost:3000,http://localhost:5173` | Comma-separated allowed origins |
+| `TRUSTED_PROXY_COUNT` | No | `0` | Trusted reverse-proxy hops for client IP resolution |
+| `AUTO_CREATE_TABLES` | No | `true` | Dev convenience; **must be false in production** |
+| `LLM_PROVIDER` | No | `local` | `local` (production) or `groq` (development only) |
+| `LOCAL_LLM_BASE_URL` | No | `http://localhost:11434/v1` | OpenAI-compatible local endpoint |
+| `LOCAL_LLM_MODEL` | No | `llama3.1:8b` | Local model name |
+| `LOCAL_LLM_TIMEOUT_SECONDS` | No | `120` | Timeout for local model requests |
+| `LOCAL_LLM_MAX_ELIGIBILITY_TRIALS` | No | `3` | Trials evaluated by the local model per request |
+| `ELIGIBILITY_TIMEOUT_SECONDS` | No | `90` | Hard limit for one trial's eligibility inference |
+| `PIPELINE_BUDGET_SECONDS` | No | `180` | Total LLM evaluation budget; remaining trials return `NEEDS_REVIEW` |
+| `GROQ_API_KEY` / `GROQ_MODEL_*` | Dev only | — | Explicit development fallback; rejected in production |
+| `QDRANT_HOST` / `QDRANT_PORT` / `QDRANT_COLLECTION` | No | `localhost` / `6333` / `clinical_trials` | Optional vector store |
+| `DEFAULT_PAGE_SIZE` / `MAX_PAGE_SIZE` | No | `10` / `50` | Pagination bounds |
+| `SENTRY_DSN` / `OTEL_EXPORTER_OTLP_ENDPOINT` | No | — | Optional observability hooks |
+| `METRICS_ENABLED` | No | `true` | Expose Prometheus metrics |
 
 ---
 
 ## Troubleshooting
 
-**`GROQ_API_KEY not set` / app won't start**
-Make sure `.env` exists in the project root and contains a valid key. Restart the terminal after creating/editing the file.
+**Production refuses to start with a settings error**
+Read the validation message. Common causes: `SECRET_KEY` shorter than 32 characters, `AUTO_CREATE_TABLES=true`, `ALLOW_REGISTRATION=true`, or `LLM_PROVIDER=groq`. Production intentionally rejects all of these.
 
 **`Database connection refused`**
-Confirm PostgreSQL is running (`docker ps` if using Docker) and that `DATABASE_URL` credentials match the database.
+Confirm PostgreSQL is running (`docker compose ps`) and that `DATABASE_URL` credentials match the database. Run `uv run alembic upgrade head` before starting the API if `AUTO_CREATE_TABLES=false`.
+
+**Health is green but matching fails**
+Ensure the local model is running and pulled: `docker compose exec ollama ollama pull llama3.1:8b`. Check `/api/v1/health/ready` only covers database/Redis, not model warm-up.
+
+**401 after restarting the API**
+Changing `SECRET_KEY` invalidates existing access/refresh tokens. Log in again.
 
 **`DSPy import error`**
 The PyPI package is `dspy-ai`, not `dspy`. Run `pip install dspy-ai`.
@@ -560,7 +596,7 @@ Ensure the backend is running on port 8000. The Vite dev proxy forwards `/api` t
 The free tier allows ~30 requests/min. The pipeline already batches eligibility checks with delays. If you hit limits, reduce the fetch/evaluation volume in `agents/trial_fetcher.py` (the `FETCH_BUFFER_MULTIPLIER` / hard cap) and `agents/eligibility_checker.py`.
 
 **ClinicalTrials.gov returns HTTP 403**
-The client automatically retries progressively simpler queries and, if still blocked, falls back to a public trial-search mirror (TrialsMap). This is logged as a `WARNING` in `logs/clinical_trial_matcher.log`.
+The client automatically retries progressively simpler queries and, if still blocked, falls back to a public trial-search mirror (TrialsMap). This is logged as a `WARNING` in `logs/app.log`.
 
 ---
 
@@ -571,5 +607,5 @@ This tool is for **informational and research purposes only** and does **not** c
 ---
 
 <div align="center">
-  <sub>Built with FastAPI · LangGraph · DSPy · Groq · React</sub>
+  <sub>Built with FastAPI · LangGraph · DSPy · local LLMs · React</sub>
 </div>

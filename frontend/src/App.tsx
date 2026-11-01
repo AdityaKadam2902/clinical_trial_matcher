@@ -1,13 +1,16 @@
 // App.tsx — Main application with search and results views
 
-import { useState } from 'react'
-import { Activity, Search, AlertTriangle, Clock, FileText, RotateCcw, ChevronLeft, ChevronRight } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Activity, Search, AlertTriangle, Clock, FileText, RotateCcw, ChevronLeft, ChevronRight, LogOut } from 'lucide-react'
 import PatientForm from './components/PatientForm'
 import TrialCard from './components/TrialCard'
-import { matchTrials } from './services/api'
+import LoginForm from './components/LoginForm'
+import { getErrorMessage, matchTrials } from './services/api'
+import { getMe, logout } from './services/auth'
 import type { PatientProfile, MatchResponse } from './types'
 
 type View = 'form' | 'loading' | 'results'
+type AuthState = 'checking' | 'authenticated' | 'unauthenticated'
 
 const PIPELINE_STEPS = [
   { id: 'parser',      label: 'Profile Parser',      desc: 'Normalizing patient data via RxNorm' },
@@ -26,6 +29,37 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState(1)
   const [lastPatient, setLastPatient] = useState<PatientProfile | null>(null)
   const [activeStep, setActiveStep] = useState(0)
+  const [authState, setAuthState] = useState<AuthState>('checking')
+  const [authRequired, setAuthRequired] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+
+    getMe()
+      .then(user => {
+        if (cancelled) return
+        setAuthRequired(user.id !== null)
+        setAuthState('authenticated')
+      })
+      .catch(err => {
+        if (cancelled) return
+        setAuthState(err?.response?.status === 401 ? 'unauthenticated' : 'authenticated')
+      })
+
+    const handleUnauthorized = () => setAuthState('unauthenticated')
+    window.addEventListener('ctm:unauthorized', handleUnauthorized)
+    return () => {
+      cancelled = true
+      window.removeEventListener('ctm:unauthorized', handleUnauthorized)
+    }
+  }, [])
+
+  const handleLogout = async () => {
+    await logout()
+    setAuthState('unauthenticated')
+    setResult(null)
+    setView('form')
+  }
 
   const handleSubmit = async (patient: PatientProfile) => {
     setView('loading')
@@ -44,9 +78,9 @@ export default function App() {
       clearInterval(stepInterval)
       setResult(data)
       setView('results')
-    } catch (err: any) {
+    } catch (err) {
       clearInterval(stepInterval)
-      setError(err.response?.data?.detail || err.message || 'An unexpected error occurred.')
+      setError(getErrorMessage(err))
       setView('form')
     }
   }
@@ -58,8 +92,8 @@ export default function App() {
     try {
       const data = await matchTrials(lastPatient, newPage, 10)
       setResult(data)
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to load page.')
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to load page.'))
     }
   }
 
@@ -69,6 +103,25 @@ export default function App() {
     setError(null)
     setActiveStep(0)
     window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  if (authState === 'checking') {
+    return (
+      <div className="min-h-screen bg-paper flex items-center justify-center">
+        <div className="w-10 h-10 rounded-full border-[3px] border-accent/15 border-t-accent animate-spin" />
+      </div>
+    )
+  }
+
+  if (authState === 'unauthenticated') {
+    return (
+      <LoginForm
+        onSuccess={() => {
+          setAuthRequired(true)
+          setAuthState('authenticated')
+        }}
+      />
+    )
   }
 
   return (
@@ -91,6 +144,12 @@ export default function App() {
               <button onClick={handleReset} className="btn-secondary text-xs px-3 py-1.5">
                 <RotateCcw className="w-3.5 h-3.5" />
                 New Search
+              </button>
+            )}
+            {authRequired && (
+              <button onClick={handleLogout} className="btn-secondary text-xs px-3 py-1.5">
+                <LogOut className="w-3.5 h-3.5" />
+                Sign out
               </button>
             )}
             <a href="/docs" target="_blank" rel="noopener noreferrer"

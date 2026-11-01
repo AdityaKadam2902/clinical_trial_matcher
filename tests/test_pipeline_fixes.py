@@ -12,26 +12,32 @@ Regression tests that cover the four bugs fixed in this patch:
 Run with:  pytest tests/test_pipeline_fixes.py -v
 """
 
-import sys, os
+import os
+import sys
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import asyncio
 import pytest
 
-from schemas.patient import PatientProfile, FHIRCondition, FHIRMedication, Sex
-from schemas.trial import (
-    ClinicalTrial, TrialStatus, TrialPhase, EligibilityCriteria,
-    TrialLocation, EligibilityDecision, SafetyLevel, SafetyAssessment,
+from clinical_trial_matcher.agents.pipeline_state import PipelineState
+from clinical_trial_matcher.schemas.patient import FHIRCondition, PatientProfile, Sex
+from clinical_trial_matcher.schemas.trial import (
+    ClinicalTrial,
     EligibilityAssessment,
+    EligibilityCriteria,
+    EligibilityDecision,
+    TrialLocation,
+    TrialPhase,
+    TrialStatus,
 )
-from agents.pipeline_state import PipelineState
-
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
+
 def make_patient(**kwargs) -> PatientProfile:
     defaults = dict(
-        age=52, sex=Sex.FEMALE,
+        age=52,
+        sex=Sex.FEMALE,
         conditions=[FHIRCondition(display="Type 2 Diabetes Mellitus")],
         symptoms=["fatigue"],
         preferred_locations=["California"],
@@ -82,44 +88,18 @@ def make_trial(
 
 # ── Fix 1: Location filter ─────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_location_filter_drops_non_matching_trial():
     """
     Trials whose country/state does not match preferred_locations must be
     dropped from filtered_trials (not silently kept).
     """
-    from agents.trial_fetcher import trial_fetcher_agent
 
     patient = make_patient(preferred_locations=["California"])
     mexico_trial = make_trial(nct_id="NCT00000001", countries=["Mexico"])
 
-    # Build a minimal state that bypasses the real API call
-    state: PipelineState = {
-        "patient": patient,
-        "search_id": "TEST-0001",
-        "requested_page": 1,
-        "page_size": 10,
-        "processing_start_time": 0.0,
-        "normalized_conditions": ["Type 2 Diabetes Mellitus"],
-        "normalized_medications": [],
-        "search_keywords": [],
-        "profile_summary": "",
-        "raw_trials": [],
-        "total_trials_found": 0,
-        "fetch_error": None,
-        "eligibility_results": [],
-        "eligible_count": 0,
-        "safety_assessments": {},
-        "drug_flags": [],
-        "rule_violations": {},
-        "pipeline_halted": False,
-        "halt_reason": None,
-        "ranked_trials": [],
-        "physician_summary": "",
-    }
-
     # Simulate what the agent does with location filtering inline
-    from schemas.patient import Sex as _Sex
 
     filtered = [mexico_trial]
     preferred_lower = [loc.lower() for loc in patient.preferred_locations]
@@ -158,6 +138,7 @@ async def test_location_filter_keeps_matching_trial():
 
 # ── Fix 2: Phase filter ────────────────────────────────────────────────────────
 
+
 def test_phase_filter_enforced_no_silent_fallback():
     """
     When requested phases are PHASE2/PHASE3 and the only available trial is
@@ -188,13 +169,14 @@ def test_phase_filter_passes_matching_trial():
 
 # ── Fix 3: Ranker excludes NOT_ELIGIBLE ───────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_ranker_excludes_not_eligible_trial():
     """
     A trial with decision=NOT_ELIGIBLE must never appear in ranked_trials,
     even if it has some met_criteria populated.
     """
-    from agents.ranker_agent import ranker_agent
+    from clinical_trial_matcher.agents.ranker_agent import ranker_agent
 
     trial = make_trial(nct_id="NCT00000005", phase=TrialPhase.PHASE3)
     not_eligible_assessment = EligibilityAssessment(
@@ -220,9 +202,7 @@ async def test_ranker_excludes_not_eligible_trial():
         "raw_trials": [trial],
         "total_trials_found": 1,
         "fetch_error": None,
-        "eligibility_results": [
-            {"nct_id": "NCT00000005", "assessment": not_eligible_assessment.model_dump()}
-        ],
+        "eligibility_results": [{"nct_id": "NCT00000005", "assessment": not_eligible_assessment.model_dump()}],
         "eligible_count": 0,
         "safety_assessments": {},
         "drug_flags": [],
@@ -234,9 +214,7 @@ async def test_ranker_excludes_not_eligible_trial():
     }
 
     result = await ranker_agent(state)
-    assert len(result["ranked_trials"]) == 0, (
-        "NOT_ELIGIBLE trial with met_criteria must not appear in ranked_trials"
-    )
+    assert len(result["ranked_trials"]) == 0, "NOT_ELIGIBLE trial with met_criteria must not appear in ranked_trials"
 
 
 @pytest.mark.asyncio
@@ -245,7 +223,7 @@ async def test_ranker_keeps_needs_review_trial():
     NEEDS_REVIEW is an uncertain outcome — it must be kept so the physician
     can manually evaluate it.
     """
-    from agents.ranker_agent import ranker_agent
+    from clinical_trial_matcher.agents.ranker_agent import ranker_agent
 
     trial = make_trial(nct_id="NCT00000006", phase=TrialPhase.PHASE3)
     needs_review_assessment = EligibilityAssessment(
@@ -271,9 +249,7 @@ async def test_ranker_keeps_needs_review_trial():
         "raw_trials": [trial],
         "total_trials_found": 1,
         "fetch_error": None,
-        "eligibility_results": [
-            {"nct_id": "NCT00000006", "assessment": needs_review_assessment.model_dump()}
-        ],
+        "eligibility_results": [{"nct_id": "NCT00000006", "assessment": needs_review_assessment.model_dump()}],
         "eligible_count": 0,
         "safety_assessments": {},
         "drug_flags": [],
@@ -285,12 +261,11 @@ async def test_ranker_keeps_needs_review_trial():
     }
 
     result = await ranker_agent(state)
-    assert len(result["ranked_trials"]) == 1, (
-        "NEEDS_REVIEW trial must be kept in ranked_trials for physician review"
-    )
+    assert len(result["ranked_trials"]) == 1, "NEEDS_REVIEW trial must be kept in ranked_trials for physician review"
 
 
 # ── Fix 4: Eligibility checker short-circuits on unavailable criteria ──────────
+
 
 @pytest.mark.asyncio
 async def test_eligibility_checker_returns_needs_review_for_fallback_trial():
@@ -299,7 +274,7 @@ async def test_eligibility_checker_returns_needs_review_for_fallback_trial():
     sentinel string and inclusion/exclusion are empty), the checker must return
     NEEDS_REVIEW with confidence=0 without calling the LLM.
     """
-    from agents.eligibility_checker import eligibility_checker_agent
+    from clinical_trial_matcher.agents.eligibility_checker import eligibility_checker_agent
 
     fallback_trial = make_trial(
         nct_id="NCT00000007",
@@ -339,13 +314,12 @@ async def test_eligibility_checker_returns_needs_review_for_fallback_trial():
     assert assessment["decision"] == EligibilityDecision.NEEDS_REVIEW.value, (
         "Fallback trial must produce NEEDS_REVIEW, not a fabricated decision"
     )
-    assert assessment["confidence"] == 0.0, (
-        "Confidence must be 0 when criteria are unavailable"
-    )
+    assert assessment["confidence"] == 0.0, "Confidence must be 0 when criteria are unavailable"
     assert assessment["match_score"] == 0.0
 
 
 # ── Fix 5: query_summary consistency ──────────────────────────────────────────
+
 
 def test_query_summary_mentions_phase_and_location_preferences():
     """
@@ -359,13 +333,9 @@ def test_query_summary_mentions_phase_and_location_preferences():
     conditions = patient.get_condition_names()
     eligible_count = 0
     total_items = 0
-    phase_note = (
-        f" Phases requested: {', '.join(patient.trial_phases)}."
-        if patient.trial_phases else ""
-    )
+    phase_note = f" Phases requested: {', '.join(patient.trial_phases)}." if patient.trial_phases else ""
     location_note = (
-        f" Location preference: {', '.join(patient.preferred_locations)}."
-        if patient.preferred_locations else ""
+        f" Location preference: {', '.join(patient.preferred_locations)}." if patient.preferred_locations else ""
     )
     query_summary = (
         f"Searched for trials matching: {', '.join(conditions[:3])}."
@@ -381,6 +351,7 @@ def test_query_summary_mentions_phase_and_location_preferences():
 
 
 # ── Fix 6: filter reason propagation through state ────────────────────────────
+
 
 def test_phase_drop_count_in_state():
     """
@@ -434,7 +405,7 @@ async def test_ranker_state_preserves_drop_counters():
     Ranker must pass through trials_dropped_by_phase and
     trials_dropped_by_location unchanged.
     """
-    from agents.ranker_agent import ranker_agent
+    from clinical_trial_matcher.agents.ranker_agent import ranker_agent
 
     state: PipelineState = {
         "patient": make_patient(),

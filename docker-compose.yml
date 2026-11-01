@@ -1,0 +1,104 @@
+name: clinical-trial-matcher
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: clinical-trial-matcher-api:local
+    env_file:
+      - .env
+    environment:
+      APP_ENV: production
+      APP_HOST: 0.0.0.0
+      APP_PORT: "8000"
+      AUTO_CREATE_TABLES: "false"
+      ALLOW_REGISTRATION: "false"
+      AUTH_ENABLED: "true"
+      LLM_PROVIDER: local
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-ctm}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-clinical_trials}
+      DATABASE_URL_SYNC: postgresql+psycopg2://${POSTGRES_USER:-ctm}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-clinical_trials}
+      REDIS_URL: redis://redis:6379/0
+      QDRANT_HOST: qdrant
+      LOCAL_LLM_BASE_URL: http://ollama:11434/v1
+      RUN_MIGRATIONS: "true"
+      WEB_CONCURRENCY: "2"
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    volumes:
+      - app_logs:/app/logs
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    restart: unless-stopped
+    logging: *default-logging
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ctm}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-clinical_trials}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    logging: *default-logging
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    logging: *default-logging
+
+  ollama:
+    image: ollama/ollama:latest
+    environment:
+      OLLAMA_HOST: 0.0.0.0
+      OLLAMA_KEEP_ALIVE: 24h
+    volumes:
+      - ollama_models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    logging: *default-logging
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    profiles: ["vector"]
+    volumes:
+      - qdrant_data:/qdrant/storage
+    restart: unless-stopped
+    logging: *default-logging
+
+volumes:
+  postgres_data:
+  redis_data:
+  ollama_models:
+  qdrant_data:
+  app_logs:

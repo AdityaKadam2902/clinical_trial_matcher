@@ -5,23 +5,30 @@ Unit tests for the safety rule engine.
 These tests are the most critical in the entire project.
 Run with: pytest tests/ -v
 """
-import sys, os
+
+import os
+import sys
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import pytest
-from schemas.patient import PatientProfile, FHIRCondition, FHIRMedication, Allergy, Sex, SmokingStatus
-from schemas.trial import (
-    ClinicalTrial, TrialStatus, TrialPhase, EligibilityCriteria,
-    TrialIntervention, SafetyLevel
+from clinical_trial_matcher.rules.safety_rules import rule_engine
+from clinical_trial_matcher.schemas.patient import Allergy, FHIRCondition, PatientProfile, Sex
+from clinical_trial_matcher.schemas.trial import (
+    ClinicalTrial,
+    EligibilityCriteria,
+    SafetyLevel,
+    TrialIntervention,
+    TrialPhase,
+    TrialStatus,
 )
-from rules.safety_rules import rule_engine
-
 
 # ── Fixtures ───────────────────────────────────────────────────────────────────
 
+
 def make_patient(**kwargs) -> PatientProfile:
     defaults = dict(
-        age=45, sex=Sex.MALE,
+        age=45,
+        sex=Sex.MALE,
         conditions=[FHIRCondition(display="Type 2 Diabetes Mellitus")],
         symptoms=["frequent urination"],
     )
@@ -54,6 +61,7 @@ def make_trial(**kwargs) -> ClinicalTrial:
 
 
 # ── Tests ───────────────────────────────────────────────────────────────────────
+
 
 def test_safe_patient_passes():
     patient = make_patient()
@@ -106,7 +114,7 @@ def test_pregnancy_with_chemo():
         interventions=[
             TrialIntervention(intervention_type="Drug", name="doxorubicin"),
             TrialIntervention(intervention_type="Drug", name="chemotherapy"),
-        ]
+        ],
     )
     result = rule_engine.evaluate(patient, trial)
     assert result.halt_pipeline is True
@@ -115,9 +123,7 @@ def test_pregnancy_with_chemo():
 
 
 def test_allergy_to_trial_drug():
-    patient = make_patient(
-        allergies=[Allergy(substance="metformin", reaction="anaphylaxis", severity="severe")]
-    )
+    patient = make_patient(allergies=[Allergy(substance="metformin", reaction="anaphylaxis", severity="severe")])
     trial = make_trial(intervention_names=["metformin"])
     result = rule_engine.evaluate(patient, trial)
     assert result.halt_pipeline is True
@@ -140,8 +146,7 @@ def test_renal_patient_with_nsaid():
         ]
     )
     trial = make_trial(
-        intervention_names=["ibuprofen"],
-        interventions=[TrialIntervention(intervention_type="Drug", name="ibuprofen")]
+        intervention_names=["ibuprofen"], interventions=[TrialIntervention(intervention_type="Drug", name="ibuprofen")]
     )
     result = rule_engine.evaluate(patient, trial)
     # Warning, not halt
@@ -158,7 +163,7 @@ def test_pediatric_patient_adult_trial():
             raw_text="Inclusion: 18 years and older",
             inclusion=["18 years and older"],
             minimum_age=18,
-        )
+        ),
     )
     result = rule_engine.evaluate(patient, trial)
     assert result.halt_pipeline is True
@@ -180,7 +185,7 @@ def test_multiple_violations():
             sex_eligible="Male",
             minimum_age=18,
             maximum_age=70,
-        )
+        ),
     )
     result = rule_engine.evaluate(patient, trial)
     assert len(result.violations) >= 2

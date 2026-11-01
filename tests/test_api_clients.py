@@ -1,11 +1,15 @@
 """
 tests/test_api_clients.py — Tests for API client parsing (no real API calls)
 """
-import sys, os
+
+import os
+import sys
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from utils.api_clients import ClinicalTrialsClient
-from schemas.trial import TrialStatus, TrialPhase
+from clinical_trial_matcher.schemas.trial import TrialPhase, TrialStatus
+from clinical_trial_matcher.utils.api_clients import ClinicalTrialsClient
+
 
 def make_raw_study(nct_id="NCT12345678", status="RECRUITING", phase="PHASE3"):
     return {
@@ -53,25 +57,31 @@ def make_raw_study(nct_id="NCT12345678", status="RECRUITING", phase="PHASE3"):
         }
     }
 
+
 client = ClinicalTrialsClient()
+
 
 def test_parse_trial_returns_trial():
     trial = client.parse_trial(make_raw_study())
     assert trial is not None
     assert trial.nct_id == "NCT12345678"
 
+
 def test_parse_trial_strips_html():
     trial = client.parse_trial(make_raw_study())
     assert "<p>" not in trial.brief_summary
     assert "test" in trial.brief_summary.lower()
 
+
 def test_parse_trial_status():
     trial = client.parse_trial(make_raw_study(status="RECRUITING"))
     assert trial.status == TrialStatus.RECRUITING
 
+
 def test_parse_trial_phase():
     trial = client.parse_trial(make_raw_study(phase="PHASE3"))
     assert trial.phase == TrialPhase.PHASE3
+
 
 def test_parse_eligibility_splits():
     trial = client.parse_trial(make_raw_study())
@@ -80,19 +90,23 @@ def test_parse_eligibility_splits():
     assert trial.eligibility.minimum_age == 18
     assert trial.eligibility.maximum_age == 70
 
+
 def test_trial_url_format():
     trial = client.parse_trial(make_raw_study(nct_id="NCT12345678"))
     assert trial.url == "https://clinicaltrials.gov/study/NCT12345678"
 
+
 def test_missing_nct_returns_none():
     trial = client.parse_trial({"protocolSection": {"identificationModule": {}}})
     assert trial is None
+
 
 def test_parse_age_years():
     assert client._parse_age_years("18 Years") == 18
     assert client._parse_age_years("6 Months") == 0
     assert client._parse_age_years("N/A") is None
     assert client._parse_age_years("") is None
+
 
 def test_parse_bullets():
     text = "- Item one\n- Item two\n- Item three"
